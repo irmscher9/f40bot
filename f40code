@@ -1,0 +1,1155 @@
+using System;
+using System.Linq;
+using cAlgo.API;
+using cAlgo.API.Indicators;
+using cAlgo.API.Internals;
+using cAlgo.Indicators;
+
+namespace cAlgo
+{
+    [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+    public class NewcBot : Robot
+    {
+        //--TODO:
+
+        //-- 0. Latest: accM16_13 == false
+
+        //-- 1. cci300 BUY close sometimes deprives of profits
+        //-- 2. ema50 BUY --//--
+        //-- 3. dnc107 buys (accC5)
+        //-- 4. cci100 SELL1 needs more finesse
+
+        //-- . Check 800p
+        //-- . cci300 SELL1 close
+        //-- . dnc100midFallback
+        //-- . cci270 acc
+        //-- . cci270 high mcd SELL1 close
+        //-- . cciM300 above dnc150middle BUY
+
+        [Parameter("Source")]
+        public DataSeries SourceSeries { get; set; }
+
+        [Parameter("Lot Size", DefaultValue = 1, MinValue = 1, Step = 1, MaxValue = 10)]
+        public double lot { get; set; }
+
+
+        //[Parameter("TS Value", DefaultValue = 1000, MinValue = 900, Step = 25, MaxValue = 1100)]
+        //public int TSV { get; set; }
+
+        //[Parameter("TS Offset", DefaultValue = 500, MinValue = 450, Step = 10, MaxValue = 550)]
+        //public int TSO { get; set; }
+
+        [Parameter("Stop Loss", DefaultValue = 400, MinValue = 200, Step = 100, MaxValue = 600)]
+        public int SL { get; set; }
+
+        [Parameter("dmsC", DefaultValue = 2, MinValue = 1.5, Step = 0.1, MaxValue = 2.5)]
+        public double DMSC { get; set; }
+
+        [Parameter("Chaikin Value", DefaultValue = 70, MinValue = 60, Step = 10, MaxValue = 120)]
+        public int cknValue { get; set; }
+
+
+        //--param1
+        [Parameter("dncTB for dnc100mid", DefaultValue = 100, MinValue = 70, Step = 5, MaxValue = 170)]
+        public double DNCTB4DNC100MID { get; set; }
+
+        //--param2
+        //[Parameter("mmt >than on cciOH", DefaultValue = 101.5, MinValue = 99, Step = 0.1, MaxValue = 101.5)]
+        //public double MMTHT4CCIO { get; set; }
+
+
+        public DirectionalMovementSystem _dms;
+        public RainbowOscillator _rbw;
+        public ChaikinVolatility _ckn;
+        public DonchianChannel _dnc7;
+        public DonchianChannel _dnc12;
+        public DonchianChannel _dnc20;
+        public DonchianChannel _dnc30;
+        public DonchianChannel _dnc50;
+        public DonchianChannel _dnc75;
+        public DonchianChannel _dnc100;
+        public DonchianChannel _dnc107;
+        public DonchianChannel _dnc150;
+        public DonchianChannel _dnc200;
+        public DonchianChannel _dnc220;
+        public DonchianChannel _dnc520;
+        public CommodityChannelIndex _cci;
+        public CommodityChannelIndex _cci30;
+        public CommodityChannelIndex _cciX;
+        public AwesomeOscillator _aws;
+        public RelativeStrengthIndex _rsi;
+        public MomentumOscillator _mmt;
+        public AcceleratorOscillator _acc;
+        public MacdHistogram _mcd;
+        public MacdHistogram _mcd200;
+        public ExponentialMovingAverage _ema14;
+        public ExponentialMovingAverage _ema21;
+        public ExponentialMovingAverage _ema25;
+        public ExponentialMovingAverage _ema21low;
+        public ExponentialMovingAverage _ema50;
+        public ExponentialMovingAverage _ema50low;
+        public ExponentialMovingAverage _ema70;
+        public StochasticOscillator _stc;
+        public StochasticOscillator _stc90;
+        public AccumulativeSwingIndex _asi;
+        public DetrendedPriceOscillator _dpo;
+        public DetrendedPriceOscillator _dpo32;
+
+        public int noBuyMode;
+        public int noSellMode;
+
+        public double BUY1pips = 0;
+        public double SELL1pips = 0;
+
+        public double TSV = 0;
+        public double TSO = 0;
+
+        public double Slippage = 0;
+        public int SlippageUP = 0;
+        public int SlippageDWN = 0;
+        public int cci300close = 0;
+        public int cciM300buy = 0;
+        public int the999 = 0;
+        public int the999dnc150buy = 0;
+
+        public int BUY1p = 0;
+        public int SELL1p = 0;
+
+        public double volume = 0;
+        public int roundUP = 3;
+
+        public int rbwNOB = 0;
+        public int rbwNOS = 0;
+
+        public double mmtC1LB = 0;
+        public int ema50UPbounce = 0;
+
+        public int burstUP = 0;
+        public int burstDWN = 0;
+
+        public double dmsC3at7_5 = 0;
+
+
+        protected override void OnStart()
+        {
+            Positions.Closed += OnPositionsClosed;
+
+            _dms = Indicators.DirectionalMovementSystem(14);
+            _rbw = Indicators.RainbowOscillator(SourceSeries, 21, MovingAverageType.Simple);
+            _ckn = Indicators.ChaikinVolatility(14, 10, MovingAverageType.Simple);
+            _dnc7 = Indicators.DonchianChannel(17);
+            _dnc12 = Indicators.DonchianChannel(12);
+            _dnc20 = Indicators.DonchianChannel(20);
+            _dnc30 = Indicators.DonchianChannel(30);
+            _dnc50 = Indicators.DonchianChannel(50);
+            _dnc75 = Indicators.DonchianChannel(75);
+            _dnc100 = Indicators.DonchianChannel(100);
+            _dnc107 = Indicators.DonchianChannel(107);
+            _dnc150 = Indicators.DonchianChannel(150);
+            _dnc200 = Indicators.DonchianChannel(200);
+            _dnc220 = Indicators.DonchianChannel(237);
+            _dnc520 = Indicators.DonchianChannel(520);
+            _cci = Indicators.CommodityChannelIndex(20);
+            _cci30 = Indicators.CommodityChannelIndex(30);
+            _cciX = Indicators.CommodityChannelIndex(21);
+            _aws = Indicators.AwesomeOscillator();
+            _rsi = Indicators.RelativeStrengthIndex(SourceSeries, 21);
+            _mmt = Indicators.MomentumOscillator(SourceSeries, 14);
+            _acc = Indicators.AcceleratorOscillator();
+            _mcd = Indicators.MacdHistogram(76, 56, 16);
+            _mcd200 = Indicators.MacdHistogram(200, 100, 16);
+            _ema14 = Indicators.ExponentialMovingAverage(SourceSeries, 14);
+            _ema21 = Indicators.ExponentialMovingAverage(SourceSeries, 21);
+            _ema25 = Indicators.ExponentialMovingAverage(SourceSeries, 25);
+            _ema21low = Indicators.ExponentialMovingAverage(MarketSeries.Low, 23);
+            _ema50 = Indicators.ExponentialMovingAverage(SourceSeries, 50);
+            _ema50low = Indicators.ExponentialMovingAverage(MarketSeries.Low, 50);
+            _ema70 = Indicators.ExponentialMovingAverage(SourceSeries, 70);
+            _stc = Indicators.StochasticOscillator(9, 3, 3, MovingAverageType.Simple);
+            _stc90 = Indicators.StochasticOscillator(90, 3, 3, MovingAverageType.Simple);
+            _asi = Indicators.AccumulativeSwingIndex(12);
+            _dpo = Indicators.DetrendedPriceOscillator(SourceSeries, 21, MovingAverageType.Simple);
+            _dpo32 = Indicators.DetrendedPriceOscillator(SourceSeries, 32, MovingAverageType.Simple);
+
+            noBuyMode = 0;
+            noSellMode = 0;
+
+            volume = Symbol.QuantityToVolumeInUnits(lot);
+
+        }
+
+        public void BUY()
+        {
+            var positionBUY1 = Positions.Find("Buy1");
+            if (positionBUY1 == null && (Account.MarginLevel > 500 || Account.MarginLevel == null))
+            {
+                ExecuteMarketOrder(TradeType.Buy, Symbol, volume, "Buy1", SL, null);
+                BUY1p = 0;
+                noBuyMode = 1;
+            }
+        }
+
+        public void SELL()
+        {
+            var positionSELL1 = Positions.Find("Sell1");
+            if (positionSELL1 == null && (Account.MarginLevel > 500 || Account.MarginLevel == null))
+            {
+                ExecuteMarketOrder(TradeType.Sell, Symbol, volume, "Sell1", SL, null);
+                SELL1p = 0;
+                noSellMode = 1;
+            }
+        }
+
+        public void cBUY()
+        {
+            var positionBUY1 = Positions.Find("Buy1");
+            if (positionBUY1 != null)
+                ClosePosition(positionBUY1);
+        }
+
+        public void cSELL()
+        {
+            var positionSELL1 = Positions.Find("Sell1");
+            if (positionSELL1 != null)
+                ClosePosition(positionSELL1);
+        }
+
+
+        public void PRINT1(string var1)
+        {
+            //--
+            var ckn = Math.Round(_ckn.Result.LastValue, roundUP);
+            var rbw = Math.Round(_rbw.Result.LastValue, roundUP);
+            var aws = Math.Round(_aws.Result.LastValue, roundUP);
+            var rsi = Math.Round(_rsi.Result.LastValue, roundUP);
+            var cci = Math.Round(_cci.Result.LastValue, roundUP);
+            var cci30 = Math.Round(_cci30.Result.LastValue, roundUP);
+            var mmt = Math.Round(_mmt.Result.LastValue, roundUP);
+            var acc = Math.Round(_acc.Result.LastValue, roundUP);
+            var mcd = Math.Round(_mcd.Histogram.LastValue, roundUP);
+            var ema21 = Math.Round(_ema21.Result.LastValue, roundUP);
+            var ema21low = Math.Round(_ema21low.Result.LastValue, roundUP);
+            var stcK = Math.Round(_stc.PercentK.LastValue, roundUP);
+            var stcK90 = Math.Round(_stc90.PercentK.LastValue, roundUP);
+            var accC = Math.Round((_acc.Result.Last(0) - _acc.Result.Last(1)), roundUP);
+            var accC5 = Math.Round((_acc.Result.Last(0) - _acc.Result.Last(4)), roundUP);
+            var dncTM = Math.Round((_dnc100.Top.LastValue + _dnc100.Middle.LastValue) / 2, roundUP);
+            var dncBM = Math.Round((_dnc100.Middle.LastValue + _dnc100.Bottom.LastValue) / 2, roundUP);
+            var dncTB = Math.Round((_dnc100.Top.LastValue - _dnc100.Bottom.LastValue), roundUP);
+            var ema21D50 = Math.Round(_ema21.Result.LastValue - _ema50.Result.LastValue);
+            var below_ema21low = Math.Round(Symbol.Ask - ema21low, roundUP);
+            var asi = Math.Round(_asi.Result.LastValue, roundUP);
+            var dpo = Math.Round(_dpo.Result.LastValue, roundUP);
+            var dpo32 = Math.Round(_dpo32.Result.LastValue, roundUP);
+            var mcd200 = Math.Round(_mcd200.Histogram.LastValue, roundUP);
+
+            //-- current price
+            double ask = Math.Round(Symbol.Ask, 5);
+            double bid = Math.Round(Symbol.Bid, 5);
+            double cp = (ask + bid) / 2;
+
+            //--
+            double A4Hr = (cp - MarketSeries.Open.Last(3)) / Symbol.PipSize;
+            double A4H = Math.Round(A4Hr, roundUP);
+            double A2Hr = (cp - MarketSeries.Open.Last(1)) / Symbol.PipSize;
+            double A2H = Math.Round(A2Hr, roundUP);
+
+            //----- dmsC
+            double dmsD0 = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dmsD1 = _dms.DIPlus.Last(1) - _dms.DIMinus.Last(1);
+            double dmsC = Math.Round((dmsD0 - dmsD1), roundUP);
+
+            //-- dmsc10
+            double dms10D0 = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dms10D1 = _dms.DIPlus.Last(9) - _dms.DIMinus.Last(9);
+            double dmsC10 = Math.Round((dmsD0 - dmsD1), roundUP);
+
+            //-- dmsc3
+            //double dms10D0a = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dms3D2 = _dms.DIPlus.Last(2) - _dms.DIMinus.Last(2);
+            double dmsC3 = Math.Round((dms10D0 - dms3D2), roundUP);
+
+            //-- mmtC10
+            double mmtC10 = Math.Round(_mmt.Result.Last(0) - _mmt.Result.Last(10), roundUP);
+
+            //--
+            double X1 = Math.Round(ema21low - _ema50low.Result.LastValue, roundUP);
+
+            //-- , "...A4H = ", A4H, "...A2H = ", A2H, "...X1 = ", X1   , " ..dpo = ", dpo
+            Print(var1, " with rsi = ", rsi, " ..cci = ", cci, " ..rbw = ", rbw, " ..mmt = ", mmt, " ..aws = ",
+            aws, " ..dmsC = ", dmsC, " ..acc = ", acc, " ..accC = ", accC, " ..accC5 = ", accC5, " ..mcd = ",
+            mcd, " ..dmsC3 = ", dmsC3, " ..ckn = ", ckn, " ..dpo32 = ", dpo32, " ..A4H = ", A4H);
+        }
+
+
+        protected override void OnTick()
+        {
+            //--
+            var positionBUY1 = Positions.Find("Buy1");
+            var positionSELL1 = Positions.Find("Sell1");
+
+            //-- Emergency Stop
+            if (Positions.Count >= 3)
+            {
+                Print("Emergency STOP with #positions = ", Positions.Count);
+                foreach (var position in Positions)
+                {
+                    ClosePosition(position);
+                }
+                Stop();
+            }
+
+            //--
+            var ckn = Math.Round(_ckn.Result.LastValue, roundUP);
+            var rbw = Math.Round(_rbw.Result.LastValue, roundUP);
+            var aws = Math.Round(_aws.Result.LastValue, roundUP);
+            var rsi = Math.Round(_rsi.Result.LastValue, roundUP);
+            var cci = Math.Round(_cci.Result.LastValue, roundUP);
+            var cci30 = Math.Round(_cci30.Result.LastValue, roundUP);
+            var mmt = Math.Round(_mmt.Result.LastValue, roundUP);
+            var acc = Math.Round(_acc.Result.LastValue, roundUP);
+            var mcd = Math.Round(_mcd.Histogram.LastValue, roundUP);
+            var ema14 = Math.Round(_ema14.Result.LastValue, roundUP);
+            var ema21 = Math.Round(_ema21.Result.LastValue, roundUP);
+            var ema21low = Math.Round(_ema21low.Result.LastValue, roundUP);
+            var ema50low = Math.Round(_ema50low.Result.LastValue, roundUP);
+            var ema50 = Math.Round(_ema50.Result.LastValue, roundUP);
+            var stcK = Math.Round(_stc.PercentK.LastValue, roundUP);
+            var stcK90 = Math.Round(_stc90.PercentK.LastValue, roundUP);
+            var accC = Math.Round((_acc.Result.Last(0) - _acc.Result.Last(1)), roundUP);
+            var accC5 = Math.Round((_acc.Result.Last(0) - _acc.Result.Last(4)), roundUP);
+            var dncTM = Math.Round((_dnc100.Top.LastValue + _dnc100.Middle.LastValue) / 2, roundUP);
+            var dncBM = Math.Round((_dnc100.Middle.LastValue + _dnc100.Bottom.LastValue) / 2, roundUP);
+            var dncTB = Math.Round((_dnc100.Top.LastValue - _dnc100.Bottom.LastValue), roundUP);
+            var dncJBM = Math.Round(_dnc100.Middle.LastValue - 15, roundUP);
+            var ema21D50 = Math.Round(_ema21.Result.LastValue - _ema50.Result.LastValue);
+            var asi = Math.Round(_asi.Result.LastValue, roundUP);
+            var dpo = Math.Round(_dpo.Result.LastValue, roundUP);
+            var dpo32 = Math.Round(_dpo32.Result.LastValue, roundUP);
+
+
+            //-- current price
+            double ask = Math.Round(Symbol.Ask, 5);
+            double bid = Math.Round(Symbol.Bid, 5);
+            double cp = (ask + bid) / 2;
+
+            //--
+            double A4H = (cp - MarketSeries.Open.Last(3)) / Symbol.PipSize;
+            double A2H = (cp - MarketSeries.Open.Last(1)) / Symbol.PipSize;
+
+
+            //----- dmsC
+            double dmsD0 = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dmsD1 = _dms.DIPlus.Last(1) - _dms.DIMinus.Last(1);
+            double dmsC = Math.Round((dmsD0 - dmsD1), roundUP);
+
+            //-- dmsc3
+            //double dms10D0a = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dms3D2 = _dms.DIPlus.Last(2) - _dms.DIMinus.Last(2);
+            double dmsC3 = Math.Round((dmsD0 - dms3D2), roundUP);
+
+            //-- dmsc10
+            double dms10D0 = _dms.DIPlus.Last(0) - _dms.DIMinus.Last(0);
+            double dms10D1 = _dms.DIPlus.Last(9) - _dms.DIMinus.Last(9);
+            double dmsC10 = Math.Round((dmsD0 - dmsD1), roundUP);
+
+            //-- dnC
+            double dnCB = _dnc100.Bottom.Last(0) - _dnc100.Bottom.Last(1);
+            double dnCT = _dnc100.Top.Last(0) - _dnc100.Top.Last(1);
+
+            //-- mmtC10
+            double mmtC10 = Math.Round(_mmt.Result.Last(0) - _mmt.Result.Last(10), roundUP);
+
+            //--
+            double awsAS = (aws / 2) + accC5;
+
+            //--
+
+            if (dmsC3 <= -7)
+                dmsC3at7_5 = 5;
+
+            //--
+            bool rsi25_10 = _rsi.Result.Minimum(2) <= 30;
+            bool rsi75_10 = _rsi.Result.Maximum(2) >= 76;
+
+            bool rsi75_15 = _rsi.Result.Maximum(15) >= 75;
+
+            bool rsi69_20 = _rsi.Result.Maximum(20) >= 69;
+
+            //--
+            bool cciM370_20 = _cci.Result.Minimum(25) <= -370;
+            bool cci370_20 = _cci.Result.Maximum(25) >= 370;
+
+            bool cci365_30 = _cci.Result.Maximum(30) >= 365;
+
+            //--
+            bool cciM310_50 = _cci.Result.Minimum(50) <= -310;
+            bool cci310_50 = _cci.Result.Maximum(50) >= 310;
+
+            //--
+            bool cci200_20 = _cci.Result.Maximum(20) >= 200;
+
+            //--
+            bool accM16_13 = _acc.Result.Minimum(11) <= -13;
+
+            //--
+            bool awsM60_20 = _aws.Result.Minimum(20) <= -60;
+
+            //--
+            Slippage = MarketSeries.Open.LastValue - MarketSeries.Close.Last(1);
+
+            //--
+            if (Slippage > 20)
+                SlippageUP = 10;
+
+            if (Slippage < -20)
+                SlippageDWN = 10;
+
+            //--
+            if (rbw > 80 && SlippageUP == 0)
+                rbwNOS = 5;
+
+            if (rbw < -80 && SlippageDWN == 0)
+                rbwNOB = 5;
+
+            //--
+            if (mmtC10 > 1)
+                mmtC1LB = 5;
+            if (mmtC10 < -1)
+                mmtC1LB = -5;
+
+            //--
+            var below_ema21low = (cp - ema21low);
+
+            //--
+            if (MarketSeries.Close.LastValue < _dnc100.Middle.LastValue)
+                ema50UPbounce = 0;
+
+            //-- Bursts
+            if (accC < -20 && burstDWN == 0)
+            {
+                burstDWN = 1;
+                Print("BurstDWN");
+                if (positionSELL1 != null)
+                    ModifyPosition(positionSELL1, positionSELL1.EntryPrice + 400, positionSELL1.TakeProfit);
+
+            }
+            if (burstDWN == 1 && accC > 7.5)
+            {
+                burstDWN = 0;
+                PRINT1("BurstDWN ended");
+                //Print("BurstDWN ended");
+            }
+
+            //--
+            if (positionSELL1 != null && positionSELL1.Pips >= 3500 && cci < -470 && dmsC > -1.5)
+            {
+                cSELL();
+                PRINT1("3500p SELL1 close");
+            }
+
+            //--
+                        /*
+            if (positionBUY1 == null && cp <= _dnc50.Bottom.LastValue + 1 && acc > 0)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc50acc0 BUY1");
+                TSV = 1000;
+                TSO = 200;
+            }
+            */
+
+//-- && accC < 5 && dmsC < 1 && rsi < 50 && cci > 0 && mcd < -3.5 && aws > -30
+if (positionSELL1 == null && positionBUY1 != null && awsM60_20 == true && TSV == 999.27 && cp >= ema50low - 3.5 && dmsC < 7 && dmsC3 <= 12)
+            {
+                cBUY();
+                SELL();
+                PRINT1("aws60 SELL1");
+                TSV = 1499.97;
+                TSO = 200;
+            }
+
+            if (positionSELL1 != null && TSV == 1499.97 && cp <= _dnc200.Bottom.LastValue && acc > 0 && cci > -250 && rsi > 33)
+            {
+                cSELL();
+                BUY();
+                PRINT1("aws60 counterBUY");
+                TSV = 1500;
+                TSO = 300;
+            }
+
+            //--
+            if (positionSELL1 == null && cp >= _dnc100.Top.LastValue - 3 && cci < 70 && aws > 45 && rsi < 69 && acc > -5 && cci370_20 == false && mmt < 101)
+            {
+                cBUY();
+                SELL();
+                PRINT1("cci70 SELL1");
+                TSV = 1200;
+                TSO = 200;
+            }
+
+            //--&& cp <= _dnc50.Middle.LastValue + 5
+            if (positionBUY1 == null && rsi75_15 == true && cp <= ema50 + 5 && rsi > 45 && cci > -200)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc50mid BUY1");
+                TSV = 1000;
+                TSO = 200;
+            }
+
+            //--
+            if (positionSELL1 != null && TSO == 199.97 && SELL1p <= 10 && dmsC3 > -5 && cp <= ema14 + 1)
+            {
+                cSELL();
+                BUY();
+                PRINT1("acc20 BUY1");
+                TSV = 1300;
+                TSO = 350;
+            }
+
+            //--NOW && CHANGED && cp >= dncBM --> && cp >= dncJBM && TSV != 1000.11 && TSV != 1500.11
+            if (positionBUY1 == null && cp <= _dnc100.Middle.LastValue && dncTB > 170 && cp >= dncJBM && aws > -57 && (dmsC > -4 || aws > -8 || mcd > 8) && (cci >= -100 || acc > -5) && mcd > 5.5 && rbw < -30)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc100mid BUY1");
+                TSV = 699.95;
+                TSO = 150;
+            }
+
+
+            if (positionBUY1 != null && TSV == 699.95 && positionBUY1.Pips > 150 && cp > _dnc100.Middle.LastValue && cci < 50 && aws < -30 && accC5 < 0)
+            {
+                cBUY();
+                SELL();
+                PRINT1("dnc100mid SELL");
+                TSV = 1000;
+                TSO = 199.99;
+            }
+
+            if (positionBUY1 != null && TSV == 699.95 && positionBUY1.Pips > 150 && cp >= _dnc50.Top.LastValue && cci < 100 && dmsC < 1)
+            {
+                cBUY();
+                SELL();
+                PRINT1("dnc100mid2 SELL");
+                TSV = 1000;
+                TSO = 199.99;
+            }
+
+            if (positionBUY1 != null && TSV == 699.95 && positionBUY1.Pips > 150 && cp >= _dnc30.Middle.LastValue && cci < 0 && dmsC < 1 && dmsC3 < 3 && aws < 10 && rbw < 1)
+            {
+                cBUY();
+                SELL();
+                PRINT1("dnc100mid3 SELL");
+                TSV = 1000;
+                TSO = 199.99;
+            }
+
+            if (positionBUY1 != null && TSV == 699.95 && positionBUY1.Pips > 150 && cp >= _dnc100.Top.LastValue - 5 && cci < 60)
+            {
+                cBUY();
+                SELL();
+                PRINT1("dnc100mid4 SELL");
+                TSV = 1000;
+                TSO = 199.99;
+            }
+
+            //-- dmsC > -5 && cp >= dncJBM
+            if (positionBUY1 == null && TSO == 199.99 && dncTB > 170 && cp <= _dnc100.Middle.LastValue + 5 && aws > 25 && ema21 > _dnc100.Middle.LastValue && mcd > 0 && acc > -10)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc100mid1 BUY");
+                TSV = 699.95;
+                TSO = 150;
+            }
+
+            //-- && && mcd > 5 && dncTB
+            if (positionBUY1 == null && TSO == 199.99 && dncTB > 170 && cp <= _dnc100.Middle.LastValue + 1 && cp >= _dnc100.Middle.LastValue - 10 && mcd > 5 && accC > -1 && aws > -37 && dncTB > 110)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc100mid2 BUY");
+                TSV = 699.95;
+                TSO = 150;
+            }
+
+            if (positionSELL1 != null && TSO == 199.99 && dncTB > 170 && positionSELL1.Pips > 150 && cp <= _dnc100.Middle.LastValue && cp >= dncJBM && cci > -130)
+            {
+                cSELL();
+                BUY();
+                PRINT1("dnc100mid3 BUY");
+                TSV = 1500;
+                TSO = 250;
+            }
+
+
+            //-- 
+            if (positionBUY1 == null && TSV == 1000.09 && cp <= _dnc520.Bottom.LastValue && rsi > 34)
+            {
+                cSELL();
+                BUY();
+                PRINT1("cci100 dnc520 BUY1");
+                TSV = 1000;
+                TSO = 200;
+            }
+
+
+            //-- ADDED && aws < -45 && dmsC > -3
+            if (positionBUY1 == null && cp <= _dnc100.Bottom.LastValue && cci > -95 && aws < -45 && dmsC > -3 && mcd > -15)
+            {
+                cSELL();
+                BUY();
+                PRINT1("cci100 BUY1");
+                TSV = 1000.07;
+                TSO = 200;
+            }
+
+            //-- ADDED all
+            if (positionSELL1 == null && TSV == 1000.07 && cp >= ema50low && (cci < 100 && cci200_20 == false || _cci.Result.HasCrossedBelow(269, 0) && rsi < 51))
+            {
+                cBUY();
+                SELL();
+                PRINT1("cci100 ema50 SELL1");
+                TSV = 1000.09;
+                TSO = 200;
+            }
+
+            //--- 
+            if (positionSELL1 == null && _cci.Result.HasCrossedBelow(370, 0) && rsi < 60 && mcd < 4 && A2H < 240 && rsi69_20 == false && cp > _dnc100.Middle.LastValue)
+            {
+                cBUY();
+                SELL();
+                PRINT1("cci370 SELL1");
+                TSV = 4000;
+                TSO = 200;
+            }
+
+            //---
+            if (positionSELL1 == null && cp >= _dnc100.Top.LastValue - 5 && mcd < -1 && aws < 15 && dmsC < 10)
+            {
+                cBUY();
+                SELL();
+                PRINT1("mcdm1 SELL1");
+                TSV = 3000.01;
+                TSO = 200;
+            }
+
+            if (positionSELL1 != null && TSV == 3000.01 && positionSELL1.Pips > 300 && cp <= _dnc20.Bottom.LastValue + 3 && rbw > -20 && aws > 3.5)
+            {
+                cSELL();
+                BUY();
+                PRINT1("mcdm1 SELL1 close");
+                TSV = 1000;
+                TSO = 200;
+            }
+
+            //-- ADDED: && (rsi < 70 || mcd > 15 || mcd < 5)
+            if (positionSELL1 == null && cci < 100 && (rsi < 70 || mcd > 15 || mcd < 5) && cp >= _dnc100.Top.LastValue - 2.2 && mmt >= 101.5 && mmt < 103.2 && ckn > 0 && aws < 80)
+            {
+                cBUY();
+                SELL();
+                PRINT1("cciOH SELL1");
+                TSV = 995.05;
+                TSO = 200;
+            }
+
+            //--
+            if (positionSELL1 != null && TSV == 995.05 && positionSELL1.Pips > 70 && mcd > 5 && cp <= ema21low && (accC5 > -5 && rbw > -25 || mcd > 15 && rbw > -25))
+            {
+                cSELL();
+                BUY();
+                PRINT1("cciOH BUY");
+                TSV = 1000;
+                TSO = 200;
+            }
+
+            //---
+            double X1 = ema50UPbounce * 1.8;
+            //-- CHANGED rsi < 62
+            if (positionSELL1 == null && cci < 100 && cci > 65 && (aws > 0 || accC5 < 0) && (rsi < 64 || rsi >= 64 && rsi <= 65 && cci365_30 == false && dmsC < 10 && dmsC3 < 10 || rsi > 80 && dpo >= 90) && (aws < 27 || aws >= 27 && acc < -6 || aws >= 27 && mcd < 10 || aws >= 27 && cci < 67 || aws >= 27 && dmsC3 < -1.5 || aws >= 27 && acc < -7 || aws >= 27 && accC5 < -5) && cp >= _dnc100.Top.LastValue - 5 + X1 && accC5 <= 16 && mmtC1LB <= 0 && noSellMode == 0)
+            {
+                cBUY();
+                SELL();
+                PRINT1("cci100 SELL1");
+                TSV = 1000.03;
+                TSO = 200;
+            }
+
+            //-- && (dmsC3 > -7 || accC > -1.5) && accC5 > -4
+            if (positionSELL1 != null && TSV == 1000.03 && dmsC3 > -11 && cci > -280 && (accC5 > -4 || dpo32 < 5) && (dmsC3at7_5 == 0 || cci > -100) && positionSELL1.Pips > 70 && cci < 0.25 && Slippage > -10 && dpo < 14 && asi > -145 && SlippageDWN <= 5 && aws > -1 && (cp <= ema21 && cp > _ema70.Result.Last(0) && acc > -5 || cp < ema50) && mcd >= 5.5 && mmt < 100.1)
+            {
+                cSELL();
+                BUY();
+                ema50UPbounce++;
+                PRINT1("ema50 BUY1");
+                //Print("SlippageDWN = ", SlippageDWN);
+
+                if (ema50UPbounce >= 3)
+                {
+                    TSV = 1500.11;
+                    TSO = 300;
+                }
+                else
+                {
+                    TSV = 1000.11;
+                    TSO = 200;
+                }
+            }
+
+            //--cci270 
+            if (positionSELL1 == null && _cci.Result.HasCrossedBelow(265, 0) && cp >= _dnc150.Middle.LastValue && TSV != 400.01 && cci310_50 == false && accC5 < 27 && mmt < 102.5 && dmsC3 < 2.3 && accC < 5)
+            {
+                cBUY();
+
+                SELL();
+                PRINT1("cci270 SELL1");
+                TSV = 1500.02;
+                TSO = 200;
+            }
+
+            //-- cci270 high mcd close && mcd >= 7 && mmt > 99.5 && acc > -10
+            if (positionSELL1 != null && positionSELL1.Pips >= 100 && TSV == 1500.02 && cci < -100 && cci > -175 && cp <= (ema21low + awsAS) && (cci > -150 || mcd > 10) && mcd >= 8 && cp > _dnc100.Middle.LastValue && dmsC > -4 && below_ema21low > -50)
+            {
+                cSELL();
+                PRINT1("cci270 counterBUY");
+                noSellMode = 1;
+                BUY();
+
+                //--subject to Optimize
+                TSV = 999.09;
+                TSO = 200;
+            }
+
+            //--
+            if (positionSELL1 != null && positionSELL1.Pips >= 100 && TSV == 1500.02 && cp <= ema50 && rsi > 47 && cci < -100 && cci > -175 && mcd > 10)
+            {
+                cSELL();
+                PRINT1("cci270 counterBUY2");
+                noSellMode = 1;
+                BUY();
+
+                //--subject to Optimize
+                TSV = 1000.05;
+                TSO = 200;
+            }
+
+            //--
+            if (positionSELL1 != null && positionSELL1.Pips >= 100 && TSV == 1500.02 && (dmsC > -6 | dmsC < -15 && cp > _ema50low.Result.LastValue) && cp <= _ema25.Result.LastValue && cp >= _ema50.Result.LastValue && cp > _dnc100.Middle.LastValue && aws > 10 && rbw < -3 && accC5 > -10 && acc > -10)
+            {
+                cSELL();
+                BUY();
+                PRINT1("cci270 counterBUY3");
+                TSV = 1000.05;
+                TSO = 200;
+            }
+
+            //-- ADDED TSV == 1000.03
+            if (positionSELL1 != null && positionSELL1.Pips >= 900 && TSV == 1500.02 && cp <= _dnc75.Middle.LastValue + 5 && mcd > 5 && rsi > 40)
+            {
+                cSELL();
+                BUY();
+                PRINT1("cci270 counterBUY4");
+                TSV = 1000.05;
+                TSO = 200;
+            }
+
+            //--
+            if (positionBUY1 != null && positionBUY1.Pips >= 100 && TSV == 1000.05 && cp >= _dnc200.Top.LastValue - 5 && cci < 125 && rsi < 61)
+            {
+                cBUY();
+                SELL();
+                PRINT1("dnc200 counterSELL");
+                TSV = 1000;
+                TSO = 200;
+            }
+
+
+            //--
+            if (cci < -500 && rsi > 35 && dmsC < 0 && (rbw > -40 || mcd > 15) && (Slippage > -17 || mcd > 0) && aws > -13 && positionBUY1 == null)
+            {
+                if (positionSELL1 != null)
+                    ClosePosition(positionSELL1);
+
+                BUY();
+                PRINT1("cci500 BUY1");
+                //Print("SlippageDWN = ", SlippageDWN, "...Slippage = ", Slippage);
+
+                TSV = 1700;
+                TSO = 250;
+            }
+
+
+            //-- ccim300 buy
+            if (_cci.Result.HasCrossedAbove(-300, 0) && cp >= _dnc200.Middle.LastValue && stcK < 30 && _stc.PercentK.LastValue > _stc.PercentD.LastValue && noBuyMode == 0 && positionBUY1 == null)
+            {
+                cSELL();
+                BUY();
+                PRINT1("cciM300 BUY1");
+                cciM300buy = 1;
+
+                TSV = 750;
+                TSO = 250;
+            }
+
+            //--
+            if (cp <= _dnc107.Bottom.LastValue && mcd > -32 && rbw >= -40 && cci >= -147 && _mcd200.Histogram.LastValue < -17 && accM16_13 == false && (aws > -42 || aws < -60 || mcd < -10) && (mcd > -20 || SlippageDWN > 7) && noBuyMode == 0 && positionBUY1 == null && positionSELL1 == null)
+            {
+                BUY();
+                PRINT1("dnc107 BUY1");
+
+                TSV = 999.27;
+                TSO = 500;
+            }
+
+            //-- && (Account.MarginLevel > 300 || Account.MarginLevel == null)
+            if (_ckn.Result.LastValue > cknValue && _ckn.Result.LastValue < 200 && cci < 330 && rsi25_10 == false && dmsC > DMSC && rbw < 82 && A4H < 1050 && aws > -75 && aws < 28 && noBuyMode == 0 && positionBUY1 == null && positionSELL1 == null)
+            {
+                if (mcd < -16 && cp > ema21)
+                {
+                    SELL();
+                    PRINT1("mcd16 SELL");
+                    TSV = 700;
+                    TSO = 200;
+                    return;
+                }
+
+
+                if ((mcd > -8 || mcd < -20) && rbwNOB == 0 && A4H < 900)
+                {
+                    BUY();
+
+                    TSV = 1000;
+                    TSO = 500;
+                    PRINT1("main BUY");
+                }
+            }
+
+            //-- && (Account.MarginLevel > 500 || Account.MarginLevel == null)
+            if (_ckn.Result.LastValue > cknValue && _ckn.Result.LastValue < 200 && cci > -230 && rsi75_10 == false && dmsC < -DMSC && rbw > -82 && A4H > -1050 && aws < 75 && aws > -48 && noSellMode == 0 && positionBUY1 == null && positionSELL1 == null)
+            {
+                if (acc > 20 && cci < 200)
+                {
+                    SELL();
+                    TSV = 1000;
+                    TSO = 199.97;
+                    PRINT1("main acc20 SELL");
+                    return;
+                }
+
+                if (mcd > 8 && cp <= ema21low && cci > -100 && cci < 0 && aws > 20)
+                {
+                    BUY();
+                    TSV = 500;
+                    TSO = 50;
+                    PRINT1("main mcd8 BUY");
+                }
+
+
+                else
+                {
+                    SELL();
+                    TSV = 1000;
+                    TSO = 500;
+                    PRINT1("main SELL");
+
+                }
+
+                //Print("main SELL with cci30 = ", cci30);
+            }
+
+            //-- Trailing Stop && strUPT == 0
+            if (positionBUY1 != null && positionBUY1.Pips > TSV && positionBUY1.Pips > BUY1pips)
+            {
+                double X = positionBUY1.Pips - TSO;
+                double NSL = positionBUY1.EntryPrice + X * Symbol.PipSize;
+
+                ModifyPosition(positionBUY1, NSL, positionBUY1.TakeProfit);
+                //Print("positionBUY1 SL modified to {0} pips", X);
+
+                BUY1pips = positionBUY1.Pips;
+            }
+
+            //-- && strDOWNT == 0
+            if (positionSELL1 != null && positionSELL1.Pips > TSV && positionSELL1.Pips > SELL1pips && burstDWN == 0)
+            {
+                double X = positionSELL1.Pips - TSO;
+                double NSL = positionSELL1.EntryPrice - X * Symbol.PipSize;
+
+                ModifyPosition(positionSELL1, NSL, positionSELL1.TakeProfit);
+                //Print("positionSELL1 SL modified to {0} pips", X);
+
+                SELL1pips = positionSELL1.Pips;
+            }
+
+            //-- cci600 close
+            if (positionBUY1 != null && _cci.Result.HasCrossedBelow(600, 0) && positionBUY1.Pips > 100)
+            {
+                cBUY();
+                Print("cci600 BUY1 close with rsi = ", rsi, " ...and rbw = ", rbw);
+            }
+
+            if (positionSELL1 != null && _cci.Result.HasCrossedAbove(-600, 0) && positionSELL1.Pips > 100)
+            {
+                cSELL();
+                Print("cci600 SELL1 close with rsi = ", rsi, " ...and rbw = ", rbw);
+            }
+
+            //-- cci300 close && (dmsC3 < 4 || aws >  || dmsC <)
+            if (positionBUY1 != null && _cci.Result.HasCrossedBelow(305, 0) && positionBUY1.Pips > 320 && acc < 10 && rsi < 64 && dmsC3 < 12)
+            {
+                cBUY();
+                SELL();
+                PRINT1("cci300 BUY1 close");
+            }
+
+            //-- ADDED && rbw > -50 
+            if (positionSELL1 != null && cci300close == 0 && _cciX.Result.HasCrossedAbove(-300, 0) && positionSELL1.Pips > 100 && acc > -24 && rbw > -50 && (dnCB <= -30 && rsi < 31 || dnCB > -30))
+            {
+
+                if (SELL1p > 5 || SELL1p <= 5 && aws < -25)
+                {
+                    cSELL();
+                    PRINT1("cci300 SELL1 close");
+
+                }
+
+                else
+                {
+                    cci300close = 1;
+                    Print("cci300close = 1");
+                }
+            }
+
+            if (positionSELL1 != null && cci300close == 1)
+            {
+                TSV = 700;
+                TSO = 200;
+                cci300close = 2;
+                Print("cci300close2 TSV700");
+            }
+
+            //-- cci300close = 1
+            if (positionSELL1 != null && cci300close == 2 && cp >= _dnc7.Middle.LastValue)
+            {
+                cSELL();
+                Print("cci300close SELL1 close with rsi = ", rsi, " ...and rbw = ", rbw, " ...and aws = ", aws, " ...and mmt = ", mmt, " ...and acc = ", acc,
+                " ...and stcK = ", stcK, " ...and SELL1p = ", SELL1p);
+            }
+
+            //-- dnc220 closes
+                        /*
+            if (positionBUY1 != null && positionBUY1.Pips > 2000 && cp >= _dnc220.Bottom.LastValue && cci370_20 == true && cci < 250)
+            {
+                ClosePosition(positionBUY1);
+                PRINT1("dnc220 BUY1 close");
+            }
+            */
+
+if (positionSELL1 != null && positionSELL1.Pips > 2000 && cp <= _dnc220.Bottom.LastValue && cciM370_20 == true && cci > -250 && rbw > -50)
+            {
+                cSELL();
+                PRINT1("dnc220 SELL1 close");
+            }
+
+            if (positionSELL1 != null && positionSELL1.Pips > 650 && TSV != 1499.77 && Math.Abs(Slippage) > 9)
+            {
+                if (positionSELL1.Pips >= 1500)
+                {
+                    cSELL();
+                    PRINT1("Slippage SELL1 close");
+                    return;
+                }
+
+                if (positionSELL1.Pips < 1500)
+                {
+                    TSV = 1499.77;
+                    TSO = 100;
+                    PRINT1("Slippage SELL1 TSO = 1500");
+                }
+
+
+            }
+
+            //-- 800p
+            if (positionSELL1 != null && positionSELL1.Pips > 800 && below_ema21low > -100 && cp < _dnc50.Bottom.LastValue && rsi > 35 && cci < -200 && (dmsC > -13 && mcd > 0 || dmsC < -30 && mcd > 4))
+            {
+                cSELL();
+                PRINT1("800p SELL1 close THIS");
+                BUY();
+
+                TSV = 800;
+                TSO = 200;
+            }
+
+            //-- cci500 BUY1 close
+            if (positionBUY1 != null && TSV == 749 && positionBUY1.Pips >= 250 && cp >= _dnc20.Top.LastValue && rsi < 60 && cci < 120 && mmt < 100.5 && rbw < 15)
+            {
+                cBUY();
+                PRINT1("cci500 rsi60 BUY1 close");
+                SELL();
+                TSV = 400;
+                TSO = 100;
+            }
+
+            //-- cciM300buy close && mmt < 100
+            if (positionBUY1 != null && cciM300buy == 1 && positionBUY1.Pips >= 100 && rsi < 55 && cci < 50 && cci > -120 && (mcd < 5 || acc < -5) && (accC < 5 && aws < 0 || aws < -21) && cp >= _ema21.Result.LastValue && cp >= _dnc150.Middle.LastValue)
+            {
+                cBUY();
+                PRINT1("cciM300buy BUY1 close");
+                SELL();
+                TSV = 1000;
+                TSO = 200;
+                the999 = 1;
+            }
+
+            //--
+            if (positionSELL1 != null && the999 == 1 && positionSELL1.Pips >= 300 && cp <= _dnc150.Bottom.LastValue && rsi > 32 && cci > -150 && aws > -27 && accC5 > -5)
+            {
+                cSELL();
+                PRINT1("999 SELL1 close");
+                BUY();
+                TSV = 1000;
+                TSO = 200;
+                the999dnc150buy = 1;
+            }
+
+            //--
+            if (positionBUY1 != null && the999dnc150buy == 1 && cp >= _dnc100.Middle.LastValue - 3 && rsi < 57 && accC5 < 15 && dmsC < 6)
+            {
+                cBUY();
+                PRINT1("the999dnc150buy BUY1 close");
+                SELL();
+
+                //--!
+                TSV = 997;
+                TSO = 200;
+            }
+
+            //--  && cci > -200 && cciM370_20 == true
+            if (positionSELL1 != null && positionSELL1.Pips >= 300 && TSV == 997 && cp <= _ema21.Result.LastValue - 14 && dmsC > -5)
+            {
+                cSELL();
+                PRINT1("dnc100midFallback SELL1 close");
+                noSellMode = 1;
+
+                BUY();
+                TSV = 1000;
+                TSO = 200;
+            }
+
+
+            //-- 
+            if (positionBUY1 != null && positionBUY1.Pips >= 150 && TSV == 349 && rsi < 62 && mcd < 15 && accC5 < 10 && (cci <= 77 && cp >= _dnc12.Top.LastValue || cp >= _dnc20.Top.LastValue && acc < 5.5 && aws < 0))
+            {
+                cBUY();
+                PRINT1("dnc12 SELL1 close");
+                SELL();
+                TSV = 998;
+                TSO = 200;
+            }
+
+            //-- && cci > -150 && mcd > 7
+            if (positionSELL1 != null && positionSELL1.Pips >= 150 && TSV == 998 && cp <= _ema70.Result.LastValue && cci > -170 && mcd > 7 && accC5 > -5)
+            {
+                cSELL();
+                PRINT1("ema70 SELL1 close");
+                BUY();
+
+                //--hook
+                TSV = 2000;
+                TSO = 500;
+            }
+
+        }
+
+        private void OnPositionsClosed(PositionClosedEventArgs args)
+        {
+
+
+            var position = args.Position;
+
+            //TSV = 1000;
+            //TSO = 200;
+
+            if (position.Label == "Buy1")
+            {
+                BUY1pips = 0;
+                BUY1p = 0;
+
+                cciM300buy = 0;
+                the999dnc150buy = 0;
+            }
+
+            if (position.Label == "Sell1")
+            {
+                SELL1pips = 0;
+                SELL1p = 0;
+
+                cci300close = 0;
+                the999 = 0;
+                noSellMode = 1;
+            }
+        }
+
+        protected override void OnBar()
+        {
+
+            //--
+            //Print(Slippage);
+
+            //--
+            var positionBUY1 = Positions.Find("Buy1");
+            var positionSELL1 = Positions.Find("Sell1");
+
+            //--
+            if (positionBUY1 != null)
+            {
+                BUY1p++;
+            }
+
+            if (positionSELL1 != null)
+            {
+                SELL1p++;
+            }
+
+            //--
+            if (dmsC3at7_5 > 0)
+                dmsC3at7_5--;
+
+            if (SlippageUP > 0)
+                SlippageUP--;
+
+            if (SlippageDWN > 0)
+                SlippageDWN--;
+
+            //--
+            if (rbwNOB > 0)
+                rbwNOB--;
+
+            if (rbwNOS > 0)
+                rbwNOS--;
+
+            //--
+            if (mmtC1LB < 0)
+                mmtC1LB++;
+            if (mmtC1LB > 0)
+                mmtC1LB--;
+
+
+            if (noBuyMode > 0)
+            {
+                noBuyMode--;
+            }
+
+            if (noSellMode > 0)
+            {
+                noSellMode--;
+            }
+
+        }
+    }
+
+}
